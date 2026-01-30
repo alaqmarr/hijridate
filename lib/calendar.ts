@@ -28,109 +28,79 @@ export const MISRI_MONTH_NAMES_AR = [
   "ذي الحجة الحرام",
 ];
 
-const LEAP_YEARS_PATTERN = [2, 5, 8, 10, 13, 16, 19, 21, 24, 27, 29];
-
-// Julian Day for Misri Epoch: Friday, July 16, 622 AD
-// Adjusted by -1 to align with Dawoodi Bohra calendar observation (e.g. 28 Jan 2026 = 10 Shabaan)
+const LEAP_YEARS_PATTERN = new Set([2, 5, 8, 10, 13, 16, 19, 21, 24, 27, 29]);
 const MISRI_EPOCH_JD = 1948439;
+const DAYS_IN_30_YEARS = 10631;
 
-function getJulianDay(date: Date): number {
-  const time = date.getTime();
-  const tzOffset = date.getTimezoneOffset() * 60 * 1000;
-  // Add timezone offset to get UTC time roughly, but better to rely on UTC date methods or raw timestamp
-  // JD = (UnixTime / 86400000.0) + 2440587.5
-  // But we want the integer day number starting at noon?
-  // Canonical calculation:
-  return Math.floor((time - tzOffset) / 86400000.0) + 2440587.5;
-}
+export function getMisriDate(date: string) {
+  // Enforce strict YYYY-MM-DD parsing in UTC
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) {
+    throw new Error("Invalid date format. Expected YYYY-MM-DD");
+  }
 
-// Convert Gregorian Date to Misri Date
-export function getMisriDate(date: Date) {
-  // 1. Calculate Julian Day
-  // Adjust for local time being passed in. We assume the input date is "Noon" of the day we want to convert
-  // to avoid boundary issues.
-  // If the user selects "Jan 28", we want the JD for Jan 28.
+  const year = y;
+  const month = m - 1; // JS-style
+  const day = d;
 
-  // Create a UTC date for the same 'day' to avoid timezone shifts affecting the integer math
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const day = date.getDate();
+  // Gregorian → Julian Day (UTC-safe)
+  const a = Math.floor((14 - (month + 1)) / 12);
+  const y2 = year + 4800 - a;
+  const m2 = month + 1 + 12 * a - 3;
 
-  // Algorithm from "Astronomical Algorithms" (Jean Meeus) for JD
-  // Simplified for our purpose since we use standard JS Date to get values
-  let a = Math.floor((14 - (month + 1)) / 12);
-  let y = year + 4800 - a;
-  let m = month + 1 + 12 * a - 3;
-  let jd =
+  const jd =
     day +
-    Math.floor((153 * m + 2) / 5) +
-    365 * y +
-    Math.floor(y / 4) -
-    Math.floor(y / 100) +
-    Math.floor(y / 400) -
+    Math.floor((153 * m2 + 2) / 5) +
+    365 * y2 +
+    Math.floor(y2 / 4) -
+    Math.floor(y2 / 100) +
+    Math.floor(y2 / 400) -
     32045;
 
-  // Days since Misri Epoch
   let daysSince = jd - MISRI_EPOCH_JD;
 
-  // 2. 30-Year Cycles
-  // Days in 30 years = (19 * 354) + (11 * 355) = 6726 + 3905 = 10631
-  const daysIn30Years = 10631;
-  const cycles = Math.floor(daysSince / daysIn30Years);
-  let remainingDays = daysSince % daysIn30Years;
+  // Normalize negative values
+  let cycles = Math.floor(daysSince / DAYS_IN_30_YEARS);
+  let remainingDays = daysSince - cycles * DAYS_IN_30_YEARS;
+
+  if (remainingDays < 0) {
+    cycles -= 1;
+    remainingDays += DAYS_IN_30_YEARS;
+  }
 
   let hijriYear = cycles * 30 + 1;
 
-  // 3. Process years within the cycle
-  // Loop through years 1-30
   for (let i = 1; i <= 30; i++) {
-    const isLeap = LEAP_YEARS_PATTERN.includes(i);
-    const daysInYear = isLeap ? 355 : 354;
-
-    if (remainingDays < daysInYear) {
-      break;
-    }
+    const daysInYear = LEAP_YEARS_PATTERN.has(i) ? 355 : 354;
+    if (remainingDays < daysInYear) break;
     remainingDays -= daysInYear;
     hijriYear++;
   }
 
-  // 4. Process months within the year
-  let hijriMonth = 0; // 0-indexed for array access
-  // Month lengths: Odd=30, Even=29. 12th=30 if leap.
-  // Check if current hijriYear is leap in its cycle
-  // Cycle year = (hijriYear - 1) % 30 + 1
-  const currentCycleYear = ((hijriYear - 1) % 30) + 1;
-  const isCurrentLeap = LEAP_YEARS_PATTERN.includes(currentCycleYear);
+  const cycleYear = ((hijriYear - 1) % 30) + 1;
+  const isLeapYear = LEAP_YEARS_PATTERN.has(cycleYear);
 
-  for (let m = 0; m < 12; m++) {
-    let daysInMonth = 0;
-    if (m === 11) {
-      // 12th Month (Zilhaj)
-      daysInMonth = isCurrentLeap ? 30 : 29;
-    } else {
-      // Even months (1, 3, 5 -> indices 1, 3, 5...) are 29 days (Safar, Rabi-2...)
-      // Odd months (1, 3, 5...) are 30 days.
-      // 0-indexed: 0 (Muharram) = 30, 1 (Safar) = 29.
-      // So: if index even -> 30, if index odd -> 29.
-      daysInMonth = m % 2 === 0 ? 30 : 29;
-    }
+  let hijriMonth = 0;
+
+  for (let i = 0; i < 12; i++) {
+    const daysInMonth =
+      i === 11 ? (isLeapYear ? 30 : 29) : i % 2 === 0 ? 30 : 29;
 
     if (remainingDays < daysInMonth) {
-      hijriMonth = m;
+      hijriMonth = i;
       break;
     }
     remainingDays -= daysInMonth;
   }
 
-  const hijriDay = remainingDays + 1; // +1 because days are 1-indexed
+  const hijriDay = remainingDays + 1;
 
-  // Format Arabic Numerals
   const toArabicNumerals = (n: number) =>
-    n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
+    n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]);
 
   return {
     day: hijriDay,
-    month: hijriMonth + 1, // 1-indexed for display
+    month: hijriMonth + 1,
     year: hijriYear,
     monthNameEn: MISRI_MONTH_NAMES_EN[hijriMonth],
     monthNameAr: MISRI_MONTH_NAMES_AR[hijriMonth],
