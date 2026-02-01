@@ -1,9 +1,13 @@
-import React from 'react'
+import HijriCalendar from "@/components/HijriCalendar";
 
-const HomePage = () => {
+export default function HomePage() {
   return (
-    <div>HomePage</div>
-  )
-}
+    <main className="main-container">
+      {/* Fatemi pattern background */}
+      <div className="fatemi-pattern"></div>
 
-export default HomePage
+      {/* Calendar */}
+      <HijriCalendar />
+    </main>
+  );
+}
